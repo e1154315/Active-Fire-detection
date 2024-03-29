@@ -7,4 +7,3 @@ scikit_image==0.18.1
 scikit_learn==1.0
 tensorflow_gpu==2.6.0
 tifffile==2024.2.12
-~umpy==1.19.5

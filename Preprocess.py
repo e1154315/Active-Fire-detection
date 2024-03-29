@@ -1,13 +1,13 @@
 import numpy as np
 import pandas as pd
-import os
-import glob
-from sklearn.model_selection import train_test_split
 from tensorflow.keras.preprocessing.image import ImageDataGenerator, load_img, img_to_array
 import tensorflow as tf
 import rasterio  # 新添加，用于读取tif文件
 import skimage.transform as trans
 
+import glob
+import os
+from sklearn.model_selection import train_test_split
 
 def preprocess_image_oneband(image):
     # 对数变换
@@ -26,6 +26,49 @@ def preprocess_image_twoband(image_path, target_size=(256, 256)):
         image = (image - image.min()) / (image.max() - image.min())  # 归一化到[0,1]
     return image
 
+
+def preprocess_image_threeband_762(image_path, target_size=(256, 256)):
+    """针对三波段tif影像的预处理函数，使用标准化"""
+    with rasterio.open(image_path) as src:
+        # 读取指定的三个波段
+        image = src.read([7, 6, 2])
+        image = np.moveaxis(image, 0, -1)  # 重排轴到(height, width, channels)
+        image = trans.resize(image, target_size, preserve_range=True)  # 调整大小
+
+        # 对每个波段进行标准化处理
+        for i in range(image.shape[-1]):  # 遍历每个波段
+            band = image[:, :, i]
+            mean = band.mean()
+            std = band.std()
+            # 防止标准差为0的情况，如果为0则不做处理
+            if std > 0:
+                image[:, :, i] = (band - mean) / std
+            else:
+                image[:, :, i] = band - mean
+
+    return image
+def preprocess_image_multiband(image_path, target_size=(256, 256)):
+
+    ##to be
+    with rasterio.open(image_path) as src:
+        # 读取指定的三个波段
+        image = src.read([7, 6, 2])
+        image = np.moveaxis(image, 0, -1)  # 重排轴到(height, width, channels)
+        image = trans.resize(image, target_size, preserve_range=True)  # 调整大小
+
+        # 对每个波段进行标准化处理
+        for i in range(image.shape[-1]):  # 遍历每个波段
+            band = image[:, :, i]
+            mean = band.mean()
+            std = band.std()
+            # 防止标准差为0的情况，如果为0则不做处理
+            if std > 0:
+                image[:, :, i] = (band - mean) / std
+            else:
+                image[:, :, i] = band - mean
+
+    return image
+
 def preprocess_mask(mask_path, target_size=(256, 256)):
     """掩码图像的预处理函数，不进行归一化"""
     mask = load_img(mask_path, color_mode='grayscale', target_size=target_size)
@@ -33,29 +76,100 @@ def preprocess_mask(mask_path, target_size=(256, 256)):
     return mask
 # 这里省略了split_train_val和其它配置代码，因为它们不需要修改
 
+import glob
+import os
+
+
+def get_corresponding_mask(image_path, mask_paths):
+    """
+    根据图像路径找到对应的掩码路径。
+    假设图像文件名和掩码文件名的差异在于掩码文件名中间插入了特定字符串（如 "Kumar-Roy"）。
+    同时，需要匹配前缀（如 "LC08_L1GT_166058_20200816_20200816_01_"）和后缀（如 "_p00738"）。
+    """
+    # 提取图像文件名的各个部分
+    image_basename = os.path.basename(image_path)
+    parts = image_basename.split('_')
+    prefix = '_'.join(parts[:7])  # 假设前缀由前7个部分组成
+    suffix = parts[-1]  # 假设后缀是最后一个部分
+
+    # 构建预期的掩码文件名部分
+    expected_parts = [prefix, "Kumar-Roy", suffix]
+    expected_pattern = "_".join(expected_parts)
+    # 在掩码路径列表中查找匹配的掩码文件
+    for mask_path in mask_paths:
+        mask_basename = os.path.basename(mask_path)
+        if expected_pattern in mask_basename:
+            return mask_path
+    return None  # 如果没有找到匹配的掩码，返回 None
+
+
 def split_train_val(image_folder, mask_folder, val_size):
     image_paths = glob.glob(os.path.join(image_folder, '*.tif'))  # 假设使用png格式，根据实际情况修改
-    mask_paths = glob.glob(os.path.join(mask_folder, '*.png'))  # 假设掩模也是png格式
+    mask_paths = glob.glob(os.path.join(mask_folder, '*.tif'))  # 假设掩模也是png格式
+    # 匹配图像和掩码，而不是简单地排序
+    matched_image_paths = []
+    matched_mask_paths = []
+    for image_path in image_paths:
+        mask_path = get_corresponding_mask(image_path, mask_paths)
+        if mask_path:
+            matched_image_paths.append(image_path)
+            matched_mask_paths.append(mask_path)
 
-    # 确保图像和掩模是匹配的
-    image_paths.sort()
-    mask_paths.sort()
 
-    # 划分训练集和验证集
+    # 确保图像和掩模是匹配的后，划分训练集和验证集
     train_images, val_images, train_masks, val_masks = train_test_split(
-        image_paths, mask_paths, test_size=val_size, random_state=42
+        matched_image_paths, matched_mask_paths, test_size=val_size, random_state=42
     )
-
+    # 打印分割信息
+    total = len(image_paths)
+    print(f"总共有 {total} 张图像被分割。")
+    print(f"训练集：{len(train_images)} 张图像，占比 {(len(train_images)/total):.2f}")
+    print(f"验证集：{len(val_images)} 张图像，占比 {(len(val_images)/total):.2f}")
     return train_images, train_masks, val_images, val_masks
 
 
+def split_train_val_test(image_folder, mask_folder, val_size, test_size):
+    """
+    分割数据为训练集、验证集和测试集，并打印出分割的信息。
+    """
+    image_paths = glob.glob(os.path.join(image_folder, '*.tif'))
+    mask_paths = glob.glob(os.path.join(mask_folder, '*.tif'))
+
+    # 匹配图像和掩码，而不是简单地排序
+    matched_image_paths = []
+    matched_mask_paths = []
+    for image_path in image_paths:
+        mask_path = get_corresponding_mask(image_path, mask_paths)
+        if mask_path:
+            matched_image_paths.append(image_path)
+            matched_mask_paths.append(mask_path)
 
 
+    # 首先从全部数据中分割出测试集
+    train_val_images, test_images, train_val_masks, test_masks = train_test_split(
+        matched_image_paths, matched_mask_paths, test_size=test_size, random_state=42
+    )
 
-def create_datagen_oneband(image_paths, mask_paths, batch_size, target_size):
+    # 然后将剩余的数据分割为训练集和验证集
+    train_images, val_images, train_masks, val_masks = train_test_split(
+        train_val_images, train_val_masks, test_size=val_size / (1 - test_size), random_state=42
+    )
+
+    # 打印分割信息
+    total = len(image_paths)
+    print(f"总共有 {total} 张图像被分割。")
+    print(f"训练集：{len(train_images)} 张图像，占比 {(len(train_images)/total):.2f}")
+    print(f"验证集：{len(val_images)} 张图像，占比 {(len(val_images)/total):.2f}")
+    print(f"测试集：{len(test_images)} 张图像，占比 {(len(test_images)/total):.2f}")
+    print("分割成功！")
+
+    return train_images, train_masks, val_images, val_masks, test_images, test_masks
+
+
+def create_datagen_oneband(image_paths, mask_paths, batch_size, target_size,num_bands=1):
     # 将图像和掩码路径列表转换为 pandas DataFrame
-    image_df = pd.DataFrame({'filename': image_paths})
-    mask_df = pd.DataFrame({'filename': mask_paths})
+    #image_df = pd.DataFrame({'filename': image_paths})
+    #mask_df = pd.DataFrame({'filename': mask_paths})
 
     image_datagen = ImageDataGenerator(preprocessing_function=preprocess_image_oneband)
     mask_datagen = ImageDataGenerator()
@@ -87,21 +201,30 @@ def create_datagen_oneband(image_paths, mask_paths, batch_size, target_size):
         img = next(image_generator)
         mask = next(mask_generator)
         yield img, mask
-class TwoBandDataGenerator(tf.keras.utils.Sequence):
-    def __init__(self, image_paths, mask_paths, batch_size, target_size):
+
+class MultiBandDataGenerator(tf.keras.utils.Sequence):
+    def __init__(self, image_paths, mask_paths, batch_size, target_size, num_bands):
         self.image_paths = image_paths
         self.mask_paths = mask_paths
         self.batch_size = batch_size
         self.target_size = target_size
+        self.num_bands = num_bands  # 新增参数以指定波段数
+
 
     def __len__(self):
-        return len(self.image_paths) // self.batch_size
+        return np.ceil(len(self.image_paths) / self.batch_size).astype(int)
 
     def __getitem__(self, idx):
         batch_images = self.image_paths[idx * self.batch_size:(idx + 1) * self.batch_size]
         batch_masks = self.mask_paths[idx * self.batch_size:(idx + 1) * self.batch_size]
 
-        images = np.array([preprocess_image_twoband(image_path, self.target_size) for image_path in batch_images])
+        if self.num_bands == 2:
+            images = np.array([preprocess_image_twoband(image_path, self.target_size) for image_path in batch_images])
+        elif self.num_bands == 3:
+            images = np.array([preprocess_image_threeband_762(image_path, self.target_size) for image_path in batch_images])
+        else:
+            images = np.array([preprocess_image_multiband(image_path, self.target_size, self.num_bands) for image_path in batch_images])
+
         masks = np.array([preprocess_mask(mask_path, self.target_size) for mask_path in batch_masks])
 
         return images, masks
