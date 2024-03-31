@@ -147,6 +147,12 @@ def split_train_val_test(image_folder, mask_folder, val_size, test_size):
         if mask_path:
             matched_image_paths.append(image_path)
             matched_mask_paths.append(mask_path)
+    print(f"找到的匹配图像文件数量: {len(matched_image_paths)}")
+    print(f"找到的匹配掩模文件数量: {len(matched_mask_paths)}")
+
+    # 确保列表不为空
+    if len(matched_image_paths) == 0 or len(matched_mask_paths) == 0:
+        raise ValueError("未找到匹配的图像或掩模文件，请检查文件路径和匹配逻辑。")
 
 
     # 首先从全部数据中分割出测试集
