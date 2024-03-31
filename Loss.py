@@ -1,6 +1,19 @@
-import tensorflow as tf
+
 from tensorflow.keras import backend as K
 from keras import backend as keras
+
+
+
+import tensorflow as tf
+
+def f1_score(y_true, y_pred):
+    # 计算预测为正类的概率阈值
+    y_pred = tf.where(y_pred > 0.5, 1.0, 0.0)
+    tp = tf.reduce_sum(y_true * y_pred)  # 真正例
+    precision = tp / (tf.reduce_sum(y_pred) + tf.keras.backend.epsilon())
+    recall = tp / (tf.reduce_sum(y_true) + tf.keras.backend.epsilon())
+    f1 = 2 * precision * recall / (precision + recall + tf.keras.backend.epsilon())
+    return f1
 
 
 # metrics

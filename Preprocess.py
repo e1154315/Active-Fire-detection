@@ -1,5 +1,4 @@
 import numpy as np
-import pandas as pd
 from tensorflow.keras.preprocessing.image import ImageDataGenerator, load_img, img_to_array
 import tensorflow as tf
 import rasterio  # 新添加，用于读取tif文件
@@ -114,7 +113,12 @@ def split_train_val(image_folder, mask_folder, val_size):
         if mask_path:
             matched_image_paths.append(image_path)
             matched_mask_paths.append(mask_path)
+    print(f"找到的匹配图像文件数量: {len(matched_image_paths)}")
+    print(f"找到的匹配掩模文件数量: {len(matched_mask_paths)}")
 
+    # 确保列表不为空
+    if len(matched_image_paths) == 0 or len(matched_mask_paths) == 0:
+        raise ValueError("未找到匹配的图像或掩模文件，请检查文件路径和匹配逻辑。")
 
     # 确保图像和掩模是匹配的后，划分训练集和验证集
     train_images, val_images, train_masks, val_masks = train_test_split(
