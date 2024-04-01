@@ -46,12 +46,11 @@ def preprocess_image_threeband_762(image_path, target_size=(256, 256)):
                 image[:, :, i] = band - mean
 
     return image
-def preprocess_image_multiband(image_path, target_size=(256, 256)):
-
-    ##to be
+def preprocess_image_tenband(image_path, target_size=(256, 256)):
     with rasterio.open(image_path) as src:
-        # 读取指定的三个波段
-        image = src.read([7, 6, 2])
+        # 读取前十个波段
+        # 注意：根据您的影像数据，波段编号可能需要调整
+        image = src.read([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
         image = np.moveaxis(image, 0, -1)  # 重排轴到(height, width, channels)
         image = trans.resize(image, target_size, preserve_range=True)  # 调整大小
 
@@ -68,6 +67,29 @@ def preprocess_image_multiband(image_path, target_size=(256, 256)):
 
     return image
 
+def preprocess_image_multiband(image_path, target_size=(256, 256)):
+    with rasterio.open(image_path) as src:
+        # 读取前十个波段
+        # 注意：根据您的影像数据，波段编号可能需要调整
+        image = src.read([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+        image = np.moveaxis(image, 0, -1)  # 重排轴到(height, width, channels)
+        image = trans.resize(image, target_size, preserve_range=True)  # 调整大小
+
+        # 对每个波段进行标准化处理
+        for i in range(image.shape[-1]):  # 遍历每个波段
+            band = image[:, :, i]
+            mean = band.mean()
+            std = band.std()
+            # 防止标准差为0的情况，如果为0则不做处理
+            if std > 0:
+                image[:, :, i] = (band - mean) / std
+            else:
+                image[:, :, i] = band - mean
+
+    return image
+
+
+
 def preprocess_mask(mask_path, target_size=(256, 256)):
     """掩码图像的预处理函数，不进行归一化"""
     mask = load_img(mask_path, color_mode='grayscale', target_size=target_size)
@@ -79,40 +101,36 @@ import glob
 import os
 
 
-def get_corresponding_mask(image_path, mask_paths):
+def get_corresponding_image(mask_path, image_paths):
     """
-    根据图像路径找到对应的掩码路径。
-    假设图像文件名和掩码文件名的差异在于掩码文件名中间插入了特定字符串（如 "Kumar-Roy"）。
-    同时，需要匹配前缀（如 "LC08_L1GT_166058_20200816_20200816_01_"）和后缀（如 "_p00738"）。
+    根据掩码路径找到对应的图像路径。
+    假设掩码文件名和图像文件名的唯一区别在于掩码文件名中有一个额外的 "Kumar-Roy" 字符串。
     """
-    # 提取图像文件名的各个部分
-    image_basename = os.path.basename(image_path)
-    parts = image_basename.split('_')
-    prefix = '_'.join(parts[:7])  # 假设前缀由前7个部分组成
-    suffix = parts[-1]  # 假设后缀是最后一个部分
+    mask_basename = os.path.basename(mask_path)
+    # 构建预期的图像文件名，通过删除 "Kumar-Roy" 来实现
+    expected_image_basename = mask_basename.replace("_Kumar-Roy", "")
 
-    # 构建预期的掩码文件名部分
-    expected_parts = [prefix, "Kumar-Roy", suffix]
-    expected_pattern = "_".join(expected_parts)
-    # 在掩码路径列表中查找匹配的掩码文件
-    for mask_path in mask_paths:
-        mask_basename = os.path.basename(mask_path)
-        if expected_pattern in mask_basename:
-            return mask_path
-    return None  # 如果没有找到匹配的掩码，返回 None
-
-
+    # 在图像路径列表中查找匹配的图像文件
+    for image_path in image_paths:
+        image_basename = os.path.basename(image_path)
+        if image_basename == expected_image_basename:
+            return image_path
+    return None  # 如果没有找到匹配的图像，返回 None
+# LC08_L1GT_166058_20200816_20200816_01_RT_p00738
+# LC08_L1GT_166058_20200816_20200816_01_RT_Kumar-Roy_p00738
 def split_train_val(image_folder, mask_folder, val_size):
-    image_paths = glob.glob(os.path.join(image_folder, '*.tif'))  # 假设使用png格式，根据实际情况修改
-    mask_paths = glob.glob(os.path.join(mask_folder, '*.tif'))  # 假设掩模也是png格式
-    # 匹配图像和掩码，而不是简单地排序
+    image_paths = glob.glob(os.path.join(image_folder, '*.tif'))
+    mask_paths = glob.glob(os.path.join(mask_folder, '*.tif'))
+
+    # 匹配掩码和图像，而不是简单地排序
     matched_image_paths = []
     matched_mask_paths = []
-    for image_path in image_paths:
-        mask_path = get_corresponding_mask(image_path, mask_paths)
-        if mask_path:
+    for mask_path in mask_paths:
+        image_path = get_corresponding_image(mask_path, image_paths)
+        if image_path:
             matched_image_paths.append(image_path)
             matched_mask_paths.append(mask_path)
+
     print(f"找到的匹配图像文件数量: {len(matched_image_paths)}")
     print(f"找到的匹配掩模文件数量: {len(matched_mask_paths)}")
 
@@ -120,15 +138,16 @@ def split_train_val(image_folder, mask_folder, val_size):
     if len(matched_image_paths) == 0 or len(matched_mask_paths) == 0:
         raise ValueError("未找到匹配的图像或掩模文件，请检查文件路径和匹配逻辑。")
 
-    # 确保图像和掩模是匹配的后，划分训练集和验证集
+    # 划分训练集和验证集
     train_images, val_images, train_masks, val_masks = train_test_split(
         matched_image_paths, matched_mask_paths, test_size=val_size, random_state=42
     )
+
     # 打印分割信息
-    total = len(image_paths)
-    print(f"总共有 {total} 张图像被分割。")
-    print(f"训练集：{len(train_images)} 张图像，占比 {(len(train_images)/total):.2f}")
-    print(f"验证集：{len(val_images)} 张图像，占比 {(len(val_images)/total):.2f}")
+    total = len(mask_paths)
+    print(f"总共有 {total} 张掩模被分割。")
+    print(f"训练集：{len(train_images)} 张图像，占比 {(len(train_images) / total):.2f}")
+    print(f"验证集：{len(val_images)} 张图像，占比 {(len(val_images) / total):.2f}")
     return train_images, train_masks, val_images, val_masks
 
 
@@ -139,22 +158,21 @@ def split_train_val_test(image_folder, mask_folder, val_size, test_size):
     image_paths = glob.glob(os.path.join(image_folder, '*.tif'))
     mask_paths = glob.glob(os.path.join(mask_folder, '*.tif'))
 
-    # 匹配图像和掩码，而不是简单地排序
+    # 匹配掩码和图像，而不是简单地排序
     matched_image_paths = []
     matched_mask_paths = []
-    for image_path in image_paths:
-        mask_path = get_corresponding_mask(image_path, mask_paths)
-        if mask_path:
+    for mask_path in mask_paths:
+        image_path = get_corresponding_image(mask_path, image_paths)
+        if image_path:
             matched_image_paths.append(image_path)
             matched_mask_paths.append(mask_path)
+
     print(f"找到的匹配图像文件数量: {len(matched_image_paths)}")
     print(f"找到的匹配掩模文件数量: {len(matched_mask_paths)}")
 
     # 确保列表不为空
     if len(matched_image_paths) == 0 or len(matched_mask_paths) == 0:
         raise ValueError("未找到匹配的图像或掩模文件，请检查文件路径和匹配逻辑。")
-
-
     # 首先从全部数据中分割出测试集
     train_val_images, test_images, train_val_masks, test_masks = train_test_split(
         matched_image_paths, matched_mask_paths, test_size=test_size, random_state=42
@@ -232,8 +250,11 @@ class MultiBandDataGenerator(tf.keras.utils.Sequence):
             images = np.array([preprocess_image_twoband(image_path, self.target_size) for image_path in batch_images])
         elif self.num_bands == 3:
             images = np.array([preprocess_image_threeband_762(image_path, self.target_size) for image_path in batch_images])
+        elif self.num_bands == 10:
+            images = np.array([preprocess_image_tenband(image_path, self.target_size) for image_path in batch_images])
+
         else:
-            images = np.array([preprocess_image_multiband(image_path, self.target_size, self.num_bands) for image_path in batch_images])
+            images = np.array([preprocess_image_multiband(image_path, self.target_size) for image_path in batch_images])
 
         masks = np.array([preprocess_mask(mask_path, self.target_size) for mask_path in batch_masks])
 

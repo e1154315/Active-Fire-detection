@@ -5,7 +5,7 @@ import tensorflow as tf
 
 
 
-def channel_attention(inputs, ratio=0.5):
+def channel_attention(inputs, ratio=0.25):
     '''ratio represents the multiplier for reducing the number of channels in the first fully connected layer'''
 
     channel = inputs.shape[-1]  # Get the number of channels in the input feature map

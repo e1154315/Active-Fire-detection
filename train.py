@@ -4,7 +4,7 @@ import numpy as np
 from tensorflow.keras.callbacks import ModelCheckpoint
 from Loss import dice_loss, dice_coefficient, iou, f1_score
 from Preprocess import split_train_val, MultiBandDataGenerator, split_train_val_test
-from Unet_model import unet_three_band, unet_two_band, unet_two_band_attention
+from Unet_model import unet_three_band, unet_two_band, unet_two_band_attention,unet_three_band_attention,unet_ten_band
 from ShowPerformance import plot_training_history
 import os
 from tensorflow.keras.optimizers import Adadelta, Adam, SGD  # 根据需要导入更多优化器
@@ -23,8 +23,90 @@ mode_functions = {
     "TwoBand_attention": {
         "bands": 2,
         "model": unet_two_band_attention,
+    },
+    "ThreeBand_attention":{
+        "bands": 3,
+        "model": unet_three_band_attention,
+    },
+    "TenBand":{
+        "bands": 10,
+        "model": unet_ten_band,
     }
 }
+
+config = {
+    "batch_size": 2,
+    "target_size": (256, 256),
+    "val_size": 0.2,
+    "epochs": 5,
+    "save_best_only": True,
+    "image_folder": 'Data/test/imgs/imgs',  # 图像文件夹路径
+    "mask_folder": 'Data/test/masks/masks',  # 掩模文件夹路径
+    "perform_test": True,  # 是否进行测试集分割和评估
+    "test_size": 0.3,
+    "plot_loss": True,
+
+    "mode": "ThreeBand",
+    "optimizer_name": "Adadelta",
+    "learning_rate": 1.0,
+    "rho": 0.95,
+    "epsilon": 1e-8,
+    "loss_name": "dice_loss",
+    "metrics_names": ["dice_coefficient", "iou", "f1_score"]
+}
+
+def main():
+    # 参数设置字典
+    base_save_name = f"{config['mode']}_opt-{config['optimizer_name']}_lr-{config['learning_rate']}_rho-{config['rho']}_eps-{config['epsilon']}"
+    modelsavedir = f'models/{base_save_name}.hdf5'
+    os.makedirs(os.path.dirname(modelsavedir), exist_ok=True)
+    print("模型将被保存到:", modelsavedir)
+
+    # 从字典中传递参数
+    train_gen, val_gen, test_gen = prepare_data_and_generators(
+        config["mode"],
+        config["image_folder"],
+        config["mask_folder"],
+        config["val_size"],
+        config["test_size"],
+        config["perform_test"],
+        config["batch_size"],
+        config["target_size"]
+    )
+
+    # 模型编译
+    model = configure_and_compile_model(
+        mode=config["mode"],
+        optimizer_name=config["optimizer_name"],
+        learning_rate=config["learning_rate"],
+        rho=config["rho"],
+        epsilon=config["epsilon"],
+        loss_name=config["loss_name"],
+        metrics_names=config["metrics_names"]
+    )
+
+    # 定义模型检查点回调
+    model_checkpoint = ModelCheckpoint(modelsavedir, monitor='val_loss', verbose=1,
+                                       save_best_only=config["save_best_only"])
+
+    # 模型训练
+    history = train_model(
+        model=model,
+        train_gen=train_gen,
+        val_gen=val_gen,
+        epochs=config["epochs"],
+        model_checkpoint=model_checkpoint
+    )
+
+    # 评估和保存结果
+    evaluate_and_save_results(
+        model,
+        test_gen,
+        base_save_name,
+        history,
+        config["plot_loss"]
+    )
+
 
 def configure_and_compile_model(mode, optimizer_name, learning_rate, rho, epsilon, loss_name, metrics_names):
     # 在这里添加之前的优化器选择和编译模型的代码
@@ -112,51 +194,6 @@ def prepare_data_and_generators(mode,image_folder, mask_folder, val_size, test_s
 
     return train_gen, val_gen, test_gen
 
-
-def main():
-    # 参数设置
-    batch_size = 16
-    target_size = (256, 256)
-    val_size = 0.2
-    epochs = 40
-    save_best_only = True
-    image_folder = 'Data/africa/imgs'  # 图像文件夹路径
-    mask_folder = 'Data/africa/masks'  # 掩模文件夹路径
-    perform_test = True  # 可以根据需要设置为 False 来禁用测试集的分割和评估
-    test_size= 0.3
-    plot_loss= True
-    # 基础配置
-    mode = "ThreeBand"
-    optimizer_name = "Adadelta"
-    learning_rate = 1.0
-    rho = 0.95
-    epsilon = 1e-8
-    loss_name = "dice_loss"
-    metrics_names = ["dice_coefficient", "iou", "f1_score"]  # 将指标列表转换为字符串以便使用
-    metrics_str = "_".join(metrics_names)
-
-    # 创建保存目录的基本名称部分
-    base_save_name = f"{mode}_opt-{optimizer_name}_lr-{learning_rate}_rho-{rho}_eps-{epsilon}_loss-{loss_name}_metrics-{metrics_str}"
-    # 设置模型保存目录和文件名
-    modelsavedir = f'models/{base_save_name}.hdf5'
-    # 确保目录存在
-    os.makedirs(os.path.dirname(modelsavedir), exist_ok=True)
-    print("模型将被保存到:", modelsavedir)
-
-
-
-    train_gen, val_gen, test_gen=prepare_data_and_generators(mode,image_folder, mask_folder, val_size, test_size, perform_test, batch_size, target_size)
-    #模型编译
-    model=configure_and_compile_model(mode=mode, optimizer_name=optimizer_name, learning_rate=learning_rate, rho=rho, epsilon=epsilon, loss_name=loss_name, metrics_names=metrics_names)
-    # 定义模型检查点回调
-    model_checkpoint = ModelCheckpoint(modelsavedir, monitor='val_loss', verbose=1, save_best_only=save_best_only)
-    #模型训练
-    history=train_model(model=model, train_gen=train_gen, val_gen=val_gen, epochs=epochs, model_checkpoint=model_checkpoint)
-    # 假设所有之前的步骤都已完成
-    # 在训练完成后评估和保存结果
-    evaluate_and_save_results(model,test_gen, base_save_name, history, plot_loss)
-
-
 def train_model(model, train_gen, val_gen, epochs, model_checkpoint):
     # 在这里添加之前模型训练的代码
     steps_per_epoch = len(train_gen)
@@ -184,7 +221,6 @@ def evaluate_and_save_results(model, test_gen, base_save_name, history, plot_los
     - history: 训练历史对象。
     - plot_loss: 是否绘制和保存损失变化图表。
     """
-
     # 测试集评估
     if test_gen is not None:
         test_steps = len(test_gen)
@@ -194,20 +230,64 @@ def evaluate_and_save_results(model, test_gen, base_save_name, history, plot_los
         print(f"测试集上的 IoU: {test_iou}")
         print(f"测试集上的 F1: {test_f1}")
         # 在模型保存路径中加入测试损失和指标
-        model_save_path = f"{base_save_name}_testloss-{test_loss:.4f}_dice-{test_dice:.4f}_iou-{test_iou:.4f}_f1-{test_f1:.4f}.hdf5"
+        model_save_path = f"models/{base_save_name}_testloss-{test_loss:.4f}_dice-{test_dice:.4f}_iou-{test_iou:.4f}_f1-{test_f1:.4f}.hdf5"
+        test_results = {
+            "Test Loss": test_loss,
+            "Dice Coefficient": test_dice,
+            "IoU": test_iou,
+            "F1 Score": test_f1
+        }
+
+        # 保存配置参数和测试结果到文本文件
+        save_results_to_txt(config, test_results, file_path='training_results.txt')
     else:
         # 如果没有进行测试评估，则直接使用基础路径
-        model_save_path = base_save_name
+        model_save_path = f"models/{base_save_name}.hdf5"
     # 保存模型
     model.save(model_save_path)
     print(f"模型已保存到: {model_save_path}")
     # 绘制和保存训练损失及指标变化图表
     if plot_loss:
-        plot_loss_save_dir = f'plots/{base_save_name}'
-        os.makedirs(os.path.dirname(plot_loss_save_dir), exist_ok=True)
-        print("训练损失和指标绘图将被保存到:", plot_loss_save_dir)
-        plot_training_history(history, additional_metrics=['dice_coefficient', 'iou', 'f1_score'],
-                              save_path=os.path.join(plot_loss_save_dir, '_training_plot.png'))
+        # 定义基础目录
+        plot_loss_save_dir = 'plots/'
+        # 确保基础目录存在
+        os.makedirs(plot_loss_save_dir, exist_ok=True)
+        # 构建完整的文件名
+        plot_file_name = f"{base_save_name}_training_plot.png"
+        # 构建完整的保存路径
+        save_path = os.path.join(plot_loss_save_dir, plot_file_name)
+        print(f"训练损失和指标绘图将被保存到: {save_path}")
+        # 调用函数绘制并保存图表
+        plot_training_history(history, additional_metrics=['dice_coefficient', 'iou', 'f1_score'], save_path=save_path)
+def save_results_to_txt(config, test_results, file_path='training_results.txt'):
+    """
+    将模型配置、训练和测试结果保存到文本文件中。
+
+    参数:
+    - config: 包含模型配置和参数的字典。
+    - test_results: 包含测试结果的字典。
+    - file_path: 结果保存的文件路径。
+    """
+    with open(file_path, 'a') as file:
+        file.write("Model Configuration and Results\n")
+        file.write("-" * 40 + "\n")
+
+        # 写入配置参数
+        file.write("Configuration Parameters:\n")
+        for key, value in config.items():
+            file.write(f"{key}: {value}\n")
+
+        # 写入测试结果
+        file.write("Test Results:\n")
+        for key, value in test_results.items():
+            file.write(f"{key}: {value}\n")
+
+        # 添加分隔符以分隔不同的训练结果
+        file.write("=" * 40 + "\n\n")
+
+    print(f"Results have been saved to: {file_path}")
+
+
 if __name__ == "__main__":
     main()
 
