@@ -4,56 +4,15 @@ import numpy as np
 from tensorflow.keras.callbacks import ModelCheckpoint
 from Loss import dice_loss, dice_coefficient, iou, f1_score
 from Preprocess import split_train_val, MultiBandDataGenerator, split_train_val_test
-from Unet_model import unet_three_band, unet_two_band, unet_two_band_attention,unet_three_band_attention,unet_ten_band
 from ShowPerformance import plot_training_history
 import os
 from tensorflow.keras.optimizers import Adadelta, Adam, SGD  # 根据需要导入更多优化器
 
-# 定义模式对应的函数字典
-mode_functions = {
+import time
+from config import config
+from mode_functions import mode_functions
 
-    "ThreeBand": {
-        "bands": 3,
-        "model": unet_three_band,
-    },
-    "TwoBand": {
-        "bands": 2,
-        "model": unet_two_band,
-    },
-    "TwoBand_attention": {
-        "bands": 2,
-        "model": unet_two_band_attention,
-    },
-    "ThreeBand_attention":{
-        "bands": 3,
-        "model": unet_three_band_attention,
-    },
-    "TenBand":{
-        "bands": 10,
-        "model": unet_ten_band,
-    }
-}
 
-config = {
-    "batch_size": 2,
-    "target_size": (256, 256),
-    "val_size": 0.2,
-    "epochs": 5,
-    "save_best_only": True,
-    "image_folder": 'Data/test/imgs/imgs',  # 图像文件夹路径
-    "mask_folder": 'Data/test/masks/masks',  # 掩模文件夹路径
-    "perform_test": True,  # 是否进行测试集分割和评估
-    "test_size": 0.3,
-    "plot_loss": True,
-
-    "mode": "ThreeBand",
-    "optimizer_name": "Adadelta",
-    "learning_rate": 1.0,
-    "rho": 0.95,
-    "epsilon": 1e-8,
-    "loss_name": "dice_loss",
-    "metrics_names": ["dice_coefficient", "iou", "f1_score"]
-}
 
 def main():
     # 参数设置字典
@@ -61,7 +20,11 @@ def main():
     modelsavedir = f'models/{base_save_name}.hdf5'
     os.makedirs(os.path.dirname(modelsavedir), exist_ok=True)
     print("模型将被保存到:", modelsavedir)
+    # 总时间开始
+    total_start_time = time.time()
 
+    # 数据准备阶段
+    start_time = time.time()
     # 从字典中传递参数
     train_gen, val_gen, test_gen = prepare_data_and_generators(
         config["mode"],
@@ -73,7 +36,7 @@ def main():
         config["batch_size"],
         config["target_size"]
     )
-
+    print("数据准备耗时: {:.2f}秒".format(time.time() - start_time))
     # 模型编译
     model = configure_and_compile_model(
         mode=config["mode"],
@@ -84,7 +47,7 @@ def main():
         loss_name=config["loss_name"],
         metrics_names=config["metrics_names"]
     )
-
+    print("模型配置和编译耗时: {:.2f}秒".format(time.time() - start_time))
     # 定义模型检查点回调
     model_checkpoint = ModelCheckpoint(modelsavedir, monitor='val_loss', verbose=1,
                                        save_best_only=config["save_best_only"])
@@ -97,7 +60,7 @@ def main():
         epochs=config["epochs"],
         model_checkpoint=model_checkpoint
     )
-
+    print("模型训练耗时: {:.2f}秒".format(time.time() - start_time))
     # 评估和保存结果
     evaluate_and_save_results(
         model,
@@ -106,7 +69,10 @@ def main():
         history,
         config["plot_loss"]
     )
-
+    print("评估和保存结果耗时: {:.2f}秒".format(time.time() - start_time))
+    # 总时间结束
+    total_end_time = time.time()
+    print("总运行时间: {:.2f}秒".format(total_end_time - total_start_time))
 
 def configure_and_compile_model(mode, optimizer_name, learning_rate, rho, epsilon, loss_name, metrics_names):
     # 在这里添加之前的优化器选择和编译模型的代码
