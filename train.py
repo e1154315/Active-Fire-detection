@@ -16,7 +16,7 @@ from mode_functions import mode_functions
 
 def main():
     # 参数设置字典
-    base_save_name = f"{config['mode']}_opt-{config['optimizer_name']}_lr-{config['learning_rate']}_rho-{config['rho']}_eps-{config['epsilon']}"
+    base_save_name = f"{config['mode']}_augmentation-{config['augmentation']}_opt-{config['optimizer_name']}_lr-{config['learning_rate']}_rho-{config['rho']}_eps-{config['epsilon']}"
     modelsavedir = f'models/{base_save_name}.hdf5'
     os.makedirs(os.path.dirname(modelsavedir), exist_ok=True)
     print("模型将被保存到:", modelsavedir)
@@ -34,7 +34,8 @@ def main():
         config["test_size"],
         config["perform_test"],
         config["batch_size"],
-        config["target_size"]
+        config["target_size"],
+        config["augmentation"]
     )
     print("数据准备耗时: {:.2f}秒".format(time.time() - start_time))
     # 模型编译
@@ -111,7 +112,7 @@ def configure_and_compile_model(mode, optimizer_name, learning_rate, rho, epsilo
     return model
 
 
-def prepare_data_and_generators(mode,image_folder, mask_folder, val_size, test_size, perform_test, batch_size, target_size):
+def prepare_data_and_generators(mode,image_folder, mask_folder, val_size, test_size, perform_test, batch_size, target_size,augmentation):
     """
     准备数据并创建数据生成器。
 
@@ -150,11 +151,11 @@ def prepare_data_and_generators(mode,image_folder, mask_folder, val_size, test_s
         test_images, test_masks = [], []  # 没有测试集时返回空列表
 
     # 创建数据生成器实例
-    train_gen = create_datagen(train_images, train_masks, batch_size, target_size, bands)
-    val_gen = create_datagen(val_images, val_masks, batch_size, target_size, bands)
+    train_gen = create_datagen(train_images, train_masks, batch_size, target_size, bands,augmentation)
+    val_gen = create_datagen(val_images, val_masks, batch_size, target_size, bands,augmentation)
 
     if perform_test:
-        test_gen = create_datagen(test_images, test_masks, batch_size, target_size, bands)
+        test_gen = create_datagen(test_images, test_masks, batch_size, target_size, bands,augmentation)
     else:
         test_gen = None  # 没有测试集时返回 None
 

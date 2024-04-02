@@ -14,6 +14,7 @@ config = {
     "perform_test": True,  # 是否进行测试集分割和评估
     "test_size": 0.3,
     "plot_loss": True,
+    "augmentation": True,
 
     "mode": "ThreeBand",
     "optimizer_name": "Adadelta",
